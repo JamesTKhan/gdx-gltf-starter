@@ -2,9 +2,10 @@ package com.mygdx.game;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.*;
+import com.badlogic.gdx.graphics.g3d.utils.AnimationController;
 import com.badlogic.gdx.graphics.g3d.utils.FirstPersonCameraController;
-import com.badlogic.gdx.math.Vector3;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute;
@@ -15,7 +16,7 @@ import net.mgsx.gltf.scene3d.scene.SceneManager;
 import net.mgsx.gltf.scene3d.scene.SceneSkybox;
 import net.mgsx.gltf.scene3d.utils.IBLBuilder;
 
-public class MyGdxGame extends ApplicationAdapter
+public class MyGdxGame extends ApplicationAdapter implements AnimationController.AnimationListener
 {
 	private SceneManager sceneManager;
 	private SceneAsset sceneAsset;
@@ -74,6 +75,8 @@ public class MyGdxGame extends ApplicationAdapter
 		// setup skybox
 		skybox = new SceneSkybox(environmentCubemap);
 		sceneManager.setSkyBox(skybox);
+
+		scene.animationController.setAnimation("idle", -1);
 	}
 
 	@Override
@@ -87,7 +90,10 @@ public class MyGdxGame extends ApplicationAdapter
 		time += deltaTime;
 
 		cameraController.update();
-		scene.modelInstance.transform.rotate(Vector3.Y, 10f * deltaTime);
+//		scene.modelInstance.transform.rotate(Vector3.Y, 10f * deltaTime);
+
+		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE))
+			scene.animationController.action("jump", 1, 1f, this, 0.5f);
 
 		// render
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
@@ -104,5 +110,15 @@ public class MyGdxGame extends ApplicationAdapter
 		specularCubemap.dispose();
 		brdfLUT.dispose();
 		skybox.dispose();
+	}
+
+	@Override
+	public void onEnd(AnimationController.AnimationDesc animation) {
+
+	}
+
+	@Override
+	public void onLoop(AnimationController.AnimationDesc animation) {
+
 	}
 }
