@@ -3,6 +3,7 @@ package com.mygdx.game;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.InputProcessor;
 import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
@@ -13,6 +14,7 @@ import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.BoxShapeBuilder;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
+import com.mygdx.game.enums.CameraMode;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRColorAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
@@ -24,7 +26,7 @@ import net.mgsx.gltf.scene3d.scene.SceneManager;
 import net.mgsx.gltf.scene3d.scene.SceneSkybox;
 import net.mgsx.gltf.scene3d.utils.IBLBuilder;
 
-public class MyGdxGame extends ApplicationAdapter implements AnimationController.AnimationListener
+public class MyGdxGame extends ApplicationAdapter implements AnimationController.AnimationListener, InputProcessor
 {
 	private SceneManager sceneManager;
 	private SceneAsset sceneAsset;
@@ -37,18 +39,20 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	private float time;
 	private SceneSkybox skybox;
 	private DirectionalLightEx light;
-	private FirstPersonCameraController cameraController;
 
 	// Player Movement
 	float speed = 5f;
 	float rotationSpeed = 80f;
-	private Matrix4 playerTransform = new Matrix4();
+	private final Matrix4 playerTransform = new Matrix4();
 	private final Vector3 moveTranslation = new Vector3();
 	private final Vector3 currentPosition = new Vector3();
 
 	// Camera
-	private float camHeight = 20f;
-	private float camPitch = -20f;
+	private CameraMode cameraMode = CameraMode.BEHIND_PLAYER;
+	private float camPitch = Settings.CAMERA_START_PITCH;
+	private float distanceFromPlayer = 35f;
+	private float angleAroundPlayer = 0f;
+	private float angleBehindPlayer = 0f;
 
 	@Override
 	public void create() {
@@ -63,10 +67,10 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		camera.near = 1f;
 		camera.far = 200;
 		sceneManager.setCamera(camera);
-		camera.position.set(0,camHeight, 4f);
+		camera.position.set(0,0, 4f);
 
-		cameraController = new FirstPersonCameraController(camera);
-		Gdx.input.setInputProcessor(cameraController);
+		Gdx.input.setCursorCatched(true);
+		Gdx.input.setInputProcessor(this);
 
 		// setup light
 		light = new DirectionalLightEx();
@@ -107,13 +111,8 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		float deltaTime = Gdx.graphics.getDeltaTime();
 		time += deltaTime;
 
-		//cameraController.update();
-//		scene.modelInstance.transform.rotate(Vector3.Y, 10f * deltaTime);
-
 		processInput(deltaTime);
-		camera.position.set(currentPosition.x, camHeight, currentPosition.z - camPitch);
-		camera.lookAt(currentPosition);
-		camera.update();
+		updateCamera();
 
 		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE))
 			playerScene.animationController.action("jump", 1, 1f, this, 0.5f);
@@ -128,6 +127,10 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		// Update the player transform
 		playerTransform.set(playerScene.modelInstance.transform);
 
+		if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
+			Gdx.app.exit();
+		}
+
 		if (Gdx.input.isKeyPressed(Input.Keys.W)) {
 			moveTranslation.z += speed * deltaTime;
 		}
@@ -138,10 +141,25 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 
 		if (Gdx.input.isKeyPressed(Input.Keys.A)) {
 			playerTransform.rotate(Vector3.Y, rotationSpeed * deltaTime);
+			angleBehindPlayer += rotationSpeed * deltaTime;
 		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.D)) {
 			playerTransform.rotate(Vector3.Y, -rotationSpeed * deltaTime);
+			angleBehindPlayer -= rotationSpeed * deltaTime;
+		}
+
+		if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
+			switch (cameraMode) {
+
+				case FREE_LOOK:
+					cameraMode = CameraMode.BEHIND_PLAYER;
+					angleAroundPlayer = angleBehindPlayer;
+					break;
+				case BEHIND_PLAYER:
+					cameraMode = CameraMode.FREE_LOOK;
+					break;
+			}
 		}
 
 		// Apply the move translation to the transform
@@ -174,6 +192,55 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		sceneManager.addScene(new Scene(model));
 	}
 
+	private void updateCamera() {
+		float horDistance = calculateHorizontalDistance(distanceFromPlayer);
+		float vertDistance = calculateVerticalDistance(distanceFromPlayer);
+
+		calculatePitch();
+		calculateAngleAroundPlayer();
+		calculateCameraPosition(currentPosition, horDistance, vertDistance);
+
+		camera.up.set(Vector3.Y);
+		camera.lookAt(currentPosition);
+		camera.update();
+	}
+
+	private void calculateCameraPosition(Vector3 currentPosition, float horDistance, float vertDistance) {
+		float offsetX = (float) (horDistance * Math.sin(Math.toRadians(angleAroundPlayer)));
+		float offsetZ = (float) (horDistance * Math.cos(Math.toRadians(angleAroundPlayer)));
+
+		camera.position.x = currentPosition.x - offsetX;
+		camera.position.z = currentPosition.z - offsetZ;
+		camera.position.y = currentPosition.y + vertDistance;
+	}
+
+	private void calculateAngleAroundPlayer() {
+		if (cameraMode == CameraMode.FREE_LOOK) {
+			float angleChange = Gdx.input.getDeltaX() * Settings.CAMERA_ANGLE_AROUND_PLAYER_FACTOR;
+			angleAroundPlayer -= angleChange;
+		} else {
+			angleAroundPlayer = angleBehindPlayer;
+		}
+	}
+
+	private void calculatePitch() {
+		float pitchChange = -Gdx.input.getDeltaY() * Settings.CAMERA_PITCH_FACTOR;
+		camPitch -= pitchChange;
+
+		if (camPitch < Settings.CAMERA_MIN_PITCH)
+			camPitch = Settings.CAMERA_MIN_PITCH;
+		else if (camPitch > Settings.CAMERA_MAX_PITCH)
+			camPitch = Settings.CAMERA_MAX_PITCH;
+	}
+
+	private float calculateVerticalDistance(float distanceFromPlayer) {
+		return (float) (distanceFromPlayer * Math.sin(Math.toRadians(camPitch)));
+	}
+
+	private float calculateHorizontalDistance(float distanceFromPlayer) {
+		return (float) (distanceFromPlayer * Math.cos(Math.toRadians(camPitch)));
+	}
+
 	@Override
 	public void dispose() {
 		sceneManager.dispose();
@@ -193,5 +260,49 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	@Override
 	public void onLoop(AnimationController.AnimationDesc animation) {
 
+	}
+
+	@Override
+	public boolean keyDown(int keycode) {
+		return false;
+	}
+
+	@Override
+	public boolean keyUp(int keycode) {
+		return false;
+	}
+
+	@Override
+	public boolean keyTyped(char character) {
+		return false;
+	}
+
+	@Override
+	public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+		return false;
+	}
+
+	@Override
+	public boolean touchUp(int screenX, int screenY, int pointer, int button) {
+		return false;
+	}
+
+	@Override
+	public boolean touchDragged(int screenX, int screenY, int pointer) {
+		return false;
+	}
+
+	@Override
+	public boolean mouseMoved(int screenX, int screenY) {
+		return false;
+	}
+
+	@Override
+	public boolean scrolled(float amountX, float amountY) {
+		float zoomLevel = amountY * Settings.CAMERA_ZOOM_LEVEL_FACTOR;
+		distanceFromPlayer += zoomLevel;
+		if (distanceFromPlayer < Settings.CAMERA_MIN_DISTANCE_FROM_PLAYER)
+			distanceFromPlayer = Settings.CAMERA_MIN_DISTANCE_FROM_PLAYER;
+		return false;
 	}
 }
