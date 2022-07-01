@@ -7,14 +7,18 @@ import com.badlogic.gdx.InputProcessor;
 import com.badlogic.gdx.graphics.*;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
+import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute;
 import com.badlogic.gdx.graphics.g3d.utils.AnimationController;
-import com.badlogic.gdx.graphics.g3d.utils.FirstPersonCameraController;
 import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
 import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.BoxShapeBuilder;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.physics.bullet.Bullet;
+import com.badlogic.gdx.physics.bullet.dynamics.btRigidBody;
 import com.mygdx.game.enums.CameraMode;
+import com.mygdx.game.physics.BulletPhysicsSystem;
+import com.mygdx.game.physics.MyContactListener;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRColorAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
@@ -41,10 +45,10 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	private DirectionalLightEx light;
 
 	// Player Movement
-	float speed = 5f;
+	float speed = 55f;
 	float rotationSpeed = 80f;
 	private final Matrix4 playerTransform = new Matrix4();
-	private final Vector3 moveTranslation = new Vector3();
+	private Vector3 moveTranslation = new Vector3();
 	private final Vector3 currentPosition = new Vector3();
 
 	// Camera
@@ -54,14 +58,26 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	private float angleAroundPlayer = 0f;
 	private float angleBehindPlayer = 0f;
 
+	private BulletPhysicsSystem physicsSystem;
+	private MyContactListener myContactListener;
+	private btRigidBody playerBody;
+	private static final Vector3 direction = new Vector3();
+	private static final Vector3 angleChangeVector = new Vector3();
+
+	private Matrix4 tmpMat = new Matrix4();
+	public static int PLAYER_FLAG = 2;
+
 	@Override
 	public void create() {
+		Bullet.init(true);
+
+		physicsSystem = new BulletPhysicsSystem();
+		myContactListener = new MyContactListener();
+		myContactListener.enable();
+		myContactListener.enableOnAdded();
 
 		// create scene
-		sceneAsset = new GLTFLoader().load(Gdx.files.internal("models/Alien Slime.gltf"));
-		playerScene = new Scene(sceneAsset.scene);
 		sceneManager = new SceneManager();
-		sceneManager.addScene(playerScene);
 
 		camera = new PerspectiveCamera(60f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
 		camera.near = 1f;
@@ -97,8 +113,9 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		skybox = new SceneSkybox(environmentCubemap);
 		sceneManager.setSkyBox(skybox);
 
-		playerScene.animationController.setAnimation("idle", -1);
+		buildPlayer();
 		buildBoxes();
+		buildGround();
 	}
 
 	@Override
@@ -111,6 +128,8 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		float deltaTime = Gdx.graphics.getDeltaTime();
 		time += deltaTime;
 
+		physicsSystem.update(deltaTime);
+
 		processInput(deltaTime);
 		updateCamera();
 
@@ -121,32 +140,46 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 		sceneManager.update(deltaTime);
 		sceneManager.render();
+		physicsSystem.drawDebug(camera);
 	}
 
 	private void processInput(float deltaTime) {
 		// Update the player transform
-		playerTransform.set(playerScene.modelInstance.transform);
+		tmpMat.set(playerScene.modelInstance.transform);
 
+		// Clear the move translation out
+		moveTranslation.set(0,0,0);
+		angleChangeVector.set(0,0,0);
+
+		direction.set(Vector3.Z);
+		Vector3 dir = direction.rot(tmpMat).nor();
+		boolean moved = false;
 		if (Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
 			Gdx.app.exit();
 		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.W)) {
-			moveTranslation.z += speed * deltaTime;
+			moveTranslation.set(dir.scl(speed * deltaTime));
+			moved = true;
 		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.S)) {
-			moveTranslation.z -= speed * deltaTime;
+			moveTranslation.set(dir.scl(-speed * deltaTime));
+			moved = true;
 		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.A)) {
-			playerTransform.rotate(Vector3.Y, rotationSpeed * deltaTime);
+			//playerTransform.rotate(Vector3.Y, rotationSpeed * deltaTime);
+			angleChangeVector.y += rotationSpeed * deltaTime;
 			angleBehindPlayer += rotationSpeed * deltaTime;
+			moved = true;
 		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.D)) {
-			playerTransform.rotate(Vector3.Y, -rotationSpeed * deltaTime);
+			//playerTransform.rotate(Vector3.Y, -rotationSpeed * deltaTime);
+			angleChangeVector.y -= rotationSpeed * deltaTime;
 			angleBehindPlayer -= rotationSpeed * deltaTime;
+			moved = true;
 		}
 
 		if (Gdx.input.isKeyJustPressed(Input.Keys.TAB)) {
@@ -163,33 +196,72 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		}
 
 		// Apply the move translation to the transform
-		playerTransform.translate(moveTranslation);
+		//playerTransform.translate(moveTranslation);
+
+		if (moved) {
+			playerBody.applyCentralImpulse(moveTranslation);
+			playerBody.setAngularVelocity(angleChangeVector);
+		}
 
 		// Set the modified transform
-		playerScene.modelInstance.transform.set(playerTransform);
+		//playerScene.modelInstance.transform.set(playerTransform);
 
 		// Update vector position
 		playerScene.modelInstance.transform.getTranslation(currentPosition);
+	}
 
-		// Clear the move translation out
-		moveTranslation.set(0,0,0);
+	private void buildPlayer() {
+		sceneAsset = new GLTFLoader().load(Gdx.files.internal("models/Alien Slime.gltf"));
+		playerScene = new Scene(sceneAsset.scene);
+		sceneManager.addScene(playerScene);
+		playerScene.animationController.setAnimation("idle", -1);
+		playerScene.modelInstance.transform.translate(0, 10f, 0);
+		playerBody = physicsSystem.addGimpactBody(playerScene.modelInstance, 10f);
+
+		playerBody.setDamping(.5f, .98f);
+		playerBody.setContactCallbackFlag(PLAYER_FLAG);
+		playerBody.setAngularFactor(Vector3.Y);
 	}
 
 	private void buildBoxes() {
-		ModelBuilder modelBuilder = new ModelBuilder();
-		modelBuilder.begin();
 
 		for (int x = 0; x < 100; x+= 10) {
 			for (int z = 0; z < 100; z+= 10) {
+				ModelBuilder modelBuilder = new ModelBuilder();
+				modelBuilder.begin();
 				Material material = new Material();
 				material.set(PBRColorAttribute.createBaseColorFactor(Color.RED));
 				MeshPartBuilder builder = modelBuilder.part(x + ", " + z, GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, material);
-				BoxShapeBuilder.build(builder, x, 0, z, 1f,1f,1f);
+				BoxShapeBuilder.build(builder, 0, 0, 0, 1f,1f,1f);
+				ModelInstance modelInstance = new ModelInstance(modelBuilder.end());
+				sceneManager.addScene(new Scene(modelInstance));
+
+				modelInstance.transform.setTranslation(x, 100, z);
+
+				btRigidBody body = physicsSystem.addGimpactBody(modelInstance, 5f);
+				body.setContactCallbackFilter(PLAYER_FLAG);
 			}
 		}
 
-		ModelInstance model = new ModelInstance(modelBuilder.end());
-		sceneManager.addScene(new Scene(model));
+	}
+
+	private void buildGround() {
+		float size = 200;
+		ModelBuilder modelBuilder = new ModelBuilder();
+		modelBuilder.begin();
+
+		Material material = new Material(ColorAttribute.createDiffuse(Color.BLUE));
+		MeshPartBuilder builder = modelBuilder.part("ground", GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, material);
+		builder.rect(0, 0, size,
+				size, 0, size,
+				size, 0, 0,
+				0, 0, 0,
+				0, 1, 0);
+
+		ModelInstance modelInstance = new ModelInstance(modelBuilder.end());
+		modelInstance.transform.translate(-50, 0, -50);
+		sceneManager.addScene(new Scene(modelInstance));
+		physicsSystem.addGimpactBody(modelInstance, 0f);
 	}
 
 	private void updateCamera() {
