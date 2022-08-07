@@ -4,19 +4,19 @@ import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.InputProcessor;
-import com.badlogic.gdx.graphics.*;
-import com.badlogic.gdx.graphics.g3d.Material;
-import com.badlogic.gdx.graphics.g3d.ModelInstance;
+import com.badlogic.gdx.graphics.Color;
+import com.badlogic.gdx.graphics.Cubemap;
+import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.PerspectiveCamera;
+import com.badlogic.gdx.graphics.Pixmap;
+import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g3d.utils.AnimationController;
-import com.badlogic.gdx.graphics.g3d.utils.FirstPersonCameraController;
-import com.badlogic.gdx.graphics.g3d.utils.MeshPartBuilder;
-import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
-import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.BoxShapeBuilder;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
 import com.mygdx.game.enums.CameraMode;
+import com.mygdx.game.terrains.HeightMapTerrain;
+import com.mygdx.game.terrains.Terrain;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
-import net.mgsx.gltf.scene3d.attributes.PBRColorAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute;
 import net.mgsx.gltf.scene3d.lights.DirectionalLightEx;
@@ -54,6 +54,9 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	private float angleAroundPlayer = 0f;
 	private float angleBehindPlayer = 0f;
 
+	private Terrain terrain;
+	private Scene terrainScene;
+
 	@Override
 	public void create() {
 
@@ -65,7 +68,7 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 
 		camera = new PerspectiveCamera(60f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
 		camera.near = 1f;
-		camera.far = 200;
+		camera.far = 1000;
 		sceneManager.setCamera(camera);
 		camera.position.set(0,0, 4f);
 
@@ -98,7 +101,18 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		sceneManager.setSkyBox(skybox);
 
 		playerScene.animationController.setAnimation("idle", -1);
-		buildBoxes();
+		createTerrain();
+	}
+
+	private void createTerrain() {
+		if (terrain != null) {
+			terrain.dispose();
+			sceneManager.removeScene(terrainScene);
+		}
+
+		terrain = new HeightMapTerrain(new Pixmap(Gdx.files.internal("textures/heightmap.png")), 30f);
+		terrainScene = new Scene(terrain.getModelInstance());
+		sceneManager.addScene(terrainScene);
 	}
 
 	@Override
@@ -116,6 +130,10 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 
 		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE))
 			playerScene.animationController.action("jump", 1, 1f, this, 0.5f);
+
+		if (Gdx.input.isKeyJustPressed(Input.Keys.F1)) {
+			createTerrain();
+		}
 
 		// render
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
@@ -173,23 +191,6 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 
 		// Clear the move translation out
 		moveTranslation.set(0,0,0);
-	}
-
-	private void buildBoxes() {
-		ModelBuilder modelBuilder = new ModelBuilder();
-		modelBuilder.begin();
-
-		for (int x = 0; x < 100; x+= 10) {
-			for (int z = 0; z < 100; z+= 10) {
-				Material material = new Material();
-				material.set(PBRColorAttribute.createBaseColorFactor(Color.RED));
-				MeshPartBuilder builder = modelBuilder.part(x + ", " + z, GL20.GL_TRIANGLES, VertexAttributes.Usage.Position | VertexAttributes.Usage.Normal, material);
-				BoxShapeBuilder.build(builder, x, 0, z, 1f,1f,1f);
-			}
-		}
-
-		ModelInstance model = new ModelInstance(modelBuilder.end());
-		sceneManager.addScene(new Scene(model));
 	}
 
 	private void updateCamera() {
