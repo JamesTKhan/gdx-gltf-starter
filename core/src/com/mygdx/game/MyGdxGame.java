@@ -3,6 +3,7 @@ package com.mygdx.game;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.InputMultiplexer;
 import com.badlogic.gdx.InputProcessor;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Cubemap;
@@ -10,12 +11,18 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.PerspectiveCamera;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.utils.AnimationController;
+import com.badlogic.gdx.graphics.g3d.utils.FirstPersonCameraController;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector3;
 import com.mygdx.game.enums.CameraMode;
+import com.mygdx.game.shaders.CustomShaderProvider;
 import com.mygdx.game.terrains.HeightMapTerrain;
 import com.mygdx.game.terrains.Terrain;
+import com.mygdx.game.terrains.TerrainMaterial;
+import com.mygdx.game.terrains.attributes.TerrainFloatAttribute;
+import com.mygdx.game.terrains.attributes.TerrainMaterialAttribute;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute;
@@ -24,6 +31,7 @@ import net.mgsx.gltf.scene3d.scene.Scene;
 import net.mgsx.gltf.scene3d.scene.SceneAsset;
 import net.mgsx.gltf.scene3d.scene.SceneManager;
 import net.mgsx.gltf.scene3d.scene.SceneSkybox;
+import net.mgsx.gltf.scene3d.shaders.PBRShaderProvider;
 import net.mgsx.gltf.scene3d.utils.IBLBuilder;
 
 public class MyGdxGame extends ApplicationAdapter implements AnimationController.AnimationListener, InputProcessor
@@ -39,6 +47,7 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 	private float time;
 	private SceneSkybox skybox;
 	private DirectionalLightEx light;
+	private FirstPersonCameraController cameraController;
 
 	// Player Movement
 	float speed = 5f;
@@ -63,7 +72,7 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		// create scene
 		sceneAsset = new GLTFLoader().load(Gdx.files.internal("models/Alien Slime.gltf"));
 		playerScene = new Scene(sceneAsset.scene);
-		sceneManager = new SceneManager();
+		sceneManager = new SceneManager(new CustomShaderProvider(), PBRShaderProvider.createDefaultDepth(24));
 		sceneManager.addScene(playerScene);
 
 		camera = new PerspectiveCamera(60f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
@@ -72,8 +81,11 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		sceneManager.setCamera(camera);
 		camera.position.set(0,0, 4f);
 
+		cameraController = new FirstPersonCameraController(camera);
+		cameraController.setVelocity(100f);
+
 		Gdx.input.setCursorCatched(true);
-		Gdx.input.setInputProcessor(this);
+		Gdx.input.setInputProcessor(new InputMultiplexer(cameraController, this));
 
 		// setup light
 		light = new DirectionalLightEx();
@@ -91,7 +103,7 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		// This texture is provided by the library, no need to have it in your assets.
 		brdfLUT = new Texture(Gdx.files.classpath("net/mgsx/gltf/shaders/brdfLUT.png"));
 
-		sceneManager.setAmbientLight(1f);
+		sceneManager.setAmbientLight(0.6f);
 		sceneManager.environment.set(new PBRTextureAttribute(PBRTextureAttribute.BRDFLUTTexture, brdfLUT));
 		sceneManager.environment.set(PBRCubemapAttribute.createSpecularEnv(specularCubemap));
 		sceneManager.environment.set(PBRCubemapAttribute.createDiffuseEnv(diffuseCubemap));
@@ -110,7 +122,7 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 			sceneManager.removeScene(terrainScene);
 		}
 
-		terrain = new HeightMapTerrain(new Pixmap(Gdx.files.internal("textures/heightmap.png")), 30f);
+		terrain = new HeightMapTerrain(new Pixmap(Gdx.files.internal("textures/heightmap.png")), 60f);
 		terrainScene = new Scene(terrain.getModelInstance());
 		sceneManager.addScene(terrainScene);
 	}
@@ -126,13 +138,28 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		time += deltaTime;
 
 		processInput(deltaTime);
-		updateCamera();
+		updateCamera(deltaTime);
 
 		if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE))
 			playerScene.animationController.action("jump", 1, 1f, this, 0.5f);
 
 		if (Gdx.input.isKeyJustPressed(Input.Keys.F1)) {
 			createTerrain();
+		}
+
+		if (Gdx.input.isKeyPressed(Input.Keys.F2)) {
+			Material mat = terrain.getModelInstance().materials.get(0);
+			TerrainMaterial terrainMaterial = ((TerrainMaterialAttribute) mat.get(TerrainMaterialAttribute.TerrainMaterial)).terrainMaterial;
+			TerrainFloatAttribute attr = (TerrainFloatAttribute) terrainMaterial.get(TerrainFloatAttribute.MinSlope);
+			attr.value += 0.01f;
+			attr.value = Math.min(attr.value, 0.9f);
+		}
+
+		if (Gdx.input.isKeyPressed(Input.Keys.F3)) {
+			Material mat = terrain.getModelInstance().materials.get(0);
+			TerrainMaterial terrainMaterial = ((TerrainMaterialAttribute) mat.get(TerrainMaterialAttribute.TerrainMaterial)).terrainMaterial;
+			TerrainFloatAttribute attr = (TerrainFloatAttribute) terrainMaterial.get(TerrainFloatAttribute.MinSlope);
+			attr.value -= 0.01f;
 		}
 
 		// render
@@ -175,6 +202,9 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 					angleAroundPlayer = angleBehindPlayer;
 					break;
 				case BEHIND_PLAYER:
+					cameraMode = CameraMode.FLY_MODE;
+					break;
+				case FLY_MODE:
 					cameraMode = CameraMode.FREE_LOOK;
 					break;
 			}
@@ -193,7 +223,11 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		moveTranslation.set(0,0,0);
 	}
 
-	private void updateCamera() {
+	private void updateCamera(float delta) {
+		if (cameraMode == CameraMode.FLY_MODE) {
+			cameraController.update(delta);
+			return;
+		}
 		float horDistance = calculateHorizontalDistance(distanceFromPlayer);
 		float vertDistance = calculateVerticalDistance(distanceFromPlayer);
 
@@ -201,8 +235,8 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		calculateAngleAroundPlayer();
 		calculateCameraPosition(currentPosition, horDistance, vertDistance);
 
-		camera.up.set(Vector3.Y);
 		camera.lookAt(currentPosition);
+		camera.up.set(Vector3.Y);
 		camera.update();
 	}
 

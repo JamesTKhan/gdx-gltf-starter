@@ -8,7 +8,9 @@ import com.badlogic.gdx.graphics.VertexAttributes;
 import com.badlogic.gdx.graphics.g3d.Material;
 import com.badlogic.gdx.graphics.g3d.ModelInstance;
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder;
-import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute;
+import com.mygdx.game.terrains.attributes.TerrainFloatAttribute;
+import com.mygdx.game.terrains.attributes.TerrainMaterialAttribute;
+import com.mygdx.game.terrains.attributes.TerrainTextureAttribute;
 
 /**
  * @author JamesTKhan
@@ -19,7 +21,7 @@ public class HeightMapTerrain extends Terrain {
     private final HeightField field;
 
     public HeightMapTerrain(Pixmap data, float magnitude) {
-        this.size = 800;
+        this.size = 400;
         this.width = data.getWidth();
         this.heightMagnitude = magnitude;
 
@@ -32,21 +34,37 @@ public class HeightMapTerrain extends Terrain {
         field.magnitude.set(0f, magnitude, 0f);
         field.update();
 
-        Texture texture = new Texture(Gdx.files.internal("textures/sand-dunes1_albedo.png"), true);
-        texture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.MipMapLinearLinear);
-        texture.setWrap(Texture.TextureWrap.Repeat, Texture.TextureWrap.Repeat);
-
-        PBRTextureAttribute textureAttribute = PBRTextureAttribute.createBaseColorTexture(texture);
-        textureAttribute.scaleU = 40f;
-        textureAttribute.scaleV = 40f;
-
-        Material material = new Material();
-        material.set(textureAttribute);
-
         ModelBuilder mb = new ModelBuilder();
         mb.begin();
-        mb.part("terrain", field.mesh, GL20.GL_TRIANGLES, material);
+        mb.part("terrain", field.mesh, GL20.GL_TRIANGLES, new Material());
         modelInstance = new ModelInstance(mb.end());
+
+        // Setting the material attributes before model creation was resulting in strange issues
+        Material material = modelInstance.materials.get(0);
+
+        TerrainTextureAttribute baseAttribute = TerrainTextureAttribute.createDiffuseBase(getMipMapTexture("textures/Vol_19_4_Base_Color.png"));
+        TerrainTextureAttribute terrainSlopeTexture = TerrainTextureAttribute.createDiffuseSlope(getMipMapTexture("textures/Vol_27_4_Base_Color.png"));
+        TerrainTextureAttribute terrainHeightTexture = TerrainTextureAttribute.createDiffuseHeight(getMipMapTexture("textures/Vol_16_2_Base_Color.png"));
+
+        baseAttribute.scaleU = 40f;
+        baseAttribute.scaleV = 40f;
+
+        TerrainFloatAttribute slope = TerrainFloatAttribute.createMinSlope(0.85f);
+
+        TerrainMaterial terrainMaterial = new TerrainMaterial();
+        terrainMaterial.set(baseAttribute);
+        terrainMaterial.set(terrainSlopeTexture);
+        terrainMaterial.set(terrainHeightTexture);
+        terrainMaterial.set(slope);
+
+        material.set(TerrainMaterialAttribute.createTerrainMaterialAttribute(terrainMaterial));
+    }
+
+    private Texture getMipMapTexture(String path) {
+        Texture texture = new Texture(Gdx.files.internal(path), true);
+        texture.setFilter(Texture.TextureFilter.MipMapLinearLinear, Texture.TextureFilter.Linear);
+        texture.setWrap(Texture.TextureWrap.Repeat, Texture.TextureWrap.Repeat);
+        return texture;
     }
 
     @Override
