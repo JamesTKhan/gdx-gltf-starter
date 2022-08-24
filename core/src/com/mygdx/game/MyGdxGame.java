@@ -2,9 +2,16 @@ package com.mygdx.game;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
+import com.badlogic.gdx.assets.AssetManager;
 import com.badlogic.gdx.graphics.*;
+import com.badlogic.gdx.graphics.g3d.particles.ParticleEffect;
+import com.badlogic.gdx.graphics.g3d.particles.ParticleEffectLoader;
+import com.badlogic.gdx.graphics.g3d.particles.ParticleSystem;
+import com.badlogic.gdx.graphics.g3d.particles.batches.BillboardParticleBatch;
 import com.badlogic.gdx.graphics.g3d.utils.FirstPersonCameraController;
 import com.badlogic.gdx.math.Vector3;
+import com.badlogic.gdx.utils.Pool;
+import jdk.nashorn.internal.objects.Global;
 import net.mgsx.gltf.loaders.gltf.GLTFLoader;
 import net.mgsx.gltf.scene3d.attributes.PBRCubemapAttribute;
 import net.mgsx.gltf.scene3d.attributes.PBRTextureAttribute;
@@ -18,8 +25,6 @@ import net.mgsx.gltf.scene3d.utils.IBLBuilder;
 public class MyGdxGame extends ApplicationAdapter
 {
 	private SceneManager sceneManager;
-	private SceneAsset sceneAsset;
-	private Scene scene;
 	private PerspectiveCamera camera;
 	private Cubemap diffuseCubemap;
 	private Cubemap environmentCubemap;
@@ -30,14 +35,15 @@ public class MyGdxGame extends ApplicationAdapter
 	private DirectionalLightEx light;
 	private FirstPersonCameraController cameraController;
 
+	private ParticleSystem particleSystem;
+	private ParticleEffect particleEffect;
+	private static PFXPool pool;
+
 	@Override
 	public void create() {
 
 		// create scene
-		sceneAsset = new GLTFLoader().load(Gdx.files.internal("models/Alien Slime.gltf"));
-		scene = new Scene(sceneAsset.scene);
 		sceneManager = new SceneManager();
-		sceneManager.addScene(scene);
 
 		// setup camera (The BoomBox model is very small so you may need to adapt camera settings for your scene)
 		camera = new PerspectiveCamera(60f, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
@@ -45,7 +51,7 @@ public class MyGdxGame extends ApplicationAdapter
 		camera.near = d / 1000f;
 		camera.far = 200;
 		sceneManager.setCamera(camera);
-		camera.position.set(0,0.5f, 4f);
+		camera.position.set(0,0.5f, 20f);
 
 		cameraController = new FirstPersonCameraController(camera);
 		Gdx.input.setInputProcessor(cameraController);
@@ -74,6 +80,25 @@ public class MyGdxGame extends ApplicationAdapter
 		// setup skybox
 		skybox = new SceneSkybox(environmentCubemap);
 		sceneManager.setSkyBox(skybox);
+
+		// Particle System init
+		particleSystem = new ParticleSystem();
+		// Since our particle effects are PointSprites, we create a PointSpriteParticleBatch
+		BillboardParticleBatch billboardParticleBatch = new BillboardParticleBatch();
+		billboardParticleBatch.setCamera(camera);
+		particleSystem.add(billboardParticleBatch);
+
+		AssetManager assets = new AssetManager();
+		ParticleEffectLoader.ParticleEffectLoadParameter loadParam = new ParticleEffectLoader.ParticleEffectLoadParameter(particleSystem.getBatches());
+		assets.load("particles/laser_smoke", ParticleEffect.class, loadParam);
+		assets.finishLoading();
+		ParticleEffect originalEffect = assets.get("particles/laser_smoke");
+		pool = new PFXPool(originalEffect);
+
+		particleEffect = pool.newObject();
+		particleEffect.init();
+		particleSystem.add(particleEffect);
+		particleEffect.start();
 	}
 
 	@Override
@@ -87,22 +112,52 @@ public class MyGdxGame extends ApplicationAdapter
 		time += deltaTime;
 
 		cameraController.update();
-		scene.modelInstance.transform.rotate(Vector3.Y, 10f * deltaTime);
 
 		// render
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT | GL20.GL_DEPTH_BUFFER_BIT);
 		sceneManager.update(deltaTime);
 		sceneManager.render();
+
+		particleSystem.update(); // technically not necessary for rendering
+		particleSystem.begin();
+		particleSystem.draw();
+		particleSystem.end();
+		sceneManager.getBatch().begin(camera);
+		sceneManager.getBatch().render(particleSystem);
+		sceneManager.getBatch().end();
+
+		if (particleEffect.isComplete()) {
+			particleEffect.start();
+		}
 	}
 
 	@Override
 	public void dispose() {
 		sceneManager.dispose();
-		sceneAsset.dispose();
 		environmentCubemap.dispose();
 		diffuseCubemap.dispose();
 		specularCubemap.dispose();
 		brdfLUT.dispose();
 		skybox.dispose();
 	}
+
+	private static class PFXPool extends Pool<ParticleEffect> {
+		private final ParticleEffect sourceEffect;
+
+		public PFXPool(ParticleEffect sourceEffect) {
+			this.sourceEffect = sourceEffect;
+		}
+
+		@Override
+		public void free(ParticleEffect pfx) {
+			pfx.reset();
+			super.free(pfx);
+		}
+
+		@Override
+		protected ParticleEffect newObject() {
+			return sourceEffect.copy();
+		}
+	}
+
 }
