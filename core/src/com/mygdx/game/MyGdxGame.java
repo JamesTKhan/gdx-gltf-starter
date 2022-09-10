@@ -219,6 +219,13 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		// Update vector position
 		playerScene.modelInstance.transform.getTranslation(currentPosition);
 
+		float height = terrain.getHeightAtWorldCoord(currentPosition.x, currentPosition.z);
+
+		currentPosition.y = height;
+
+		// Apply terrain height to the slime
+		playerScene.modelInstance.transform.setTranslation(currentPosition);
+
 		// Clear the move translation out
 		moveTranslation.set(0,0,0);
 	}
@@ -234,6 +241,11 @@ public class MyGdxGame extends ApplicationAdapter implements AnimationController
 		calculatePitch();
 		calculateAngleAroundPlayer();
 		calculateCameraPosition(currentPosition, horDistance, vertDistance);
+
+		float height = terrain.getHeightAtWorldCoord(camera.position.x, camera.position.z);
+		if (camera.position.y < height + 10f) {
+			camera.position.y = height + 10f;
+		}
 
 		camera.lookAt(currentPosition);
 		camera.up.set(Vector3.Y);

@@ -21,4 +21,6 @@ public abstract class Terrain implements Disposable {
     public ModelInstance getModelInstance() {
         return modelInstance;
     }
+
+    abstract public float getHeightAtWorldCoord(float worldX, float worldZ);
 }
